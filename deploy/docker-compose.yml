@@ -1,0 +1,8 @@
+services:
+  scraper:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - ../scraper/.env
+    restart: "no"
