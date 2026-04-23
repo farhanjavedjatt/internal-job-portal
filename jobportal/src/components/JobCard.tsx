@@ -15,16 +15,18 @@ export default function JobCard({ job, density, onOpen }: Props) {
   if (density === "dense") {
     return (
       <div className="job-row glass" onClick={() => onOpen(job)}>
-        <div
-          className="job-row-glyph"
-          style={{ background: `oklch(70% 0.14 ${job.companyHue})` }}
-        >
-          <span>{job.companyMono}</span>
-        </div>
-        <div className="job-row-primary">
-          <div className="job-row-title">{job.title}</div>
-          <div className="job-row-sub mono">
-            {job.company} · {job.level}
+        <div className="job-row-lead">
+          <div
+            className="job-row-glyph"
+            style={{ background: `oklch(70% 0.14 ${job.companyHue})` }}
+          >
+            <span>{job.companyMono}</span>
+          </div>
+          <div className="job-row-primary">
+            <div className="job-row-title">{job.title}</div>
+            <div className="job-row-sub mono">
+              {job.company} · {job.level}
+            </div>
           </div>
         </div>
         <div className="job-row-loc mono">
@@ -38,8 +40,8 @@ export default function JobCard({ job, density, onOpen }: Props) {
           </span>
         </div>
         <div className="job-row-posted mono">{postedLabel}</div>
-        <div className="job-row-applicants mono">
-          <span style={{ opacity: 0.5 }}>{job.source}</span>
+        <div className="job-row-source mono">
+          <span style={{ opacity: 0.65 }}>{job.source}</span>
         </div>
         <div className="job-row-arrow" aria-hidden>
           →
