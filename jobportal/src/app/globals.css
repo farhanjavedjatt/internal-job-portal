@@ -507,6 +507,33 @@ input { font-family: inherit; color: inherit; }
   letter-spacing: 0.1em;
 }
 
+.pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 14px;
+  margin-top: 8px;
+}
+.pagination-btn {
+  font-size: 12px; padding: 7px 14px;
+  background: var(--chip-bg); color: var(--fg-dim);
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+.pagination-btn:hover:not(:disabled) { background: var(--chip-on-bg); color: var(--chip-on-fg); }
+.pagination-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.pagination-pages { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center; }
+.pagination-page {
+  min-width: 30px; height: 30px; padding: 0 8px;
+  font-size: 12px; color: var(--fg-dim);
+  background: transparent; border-radius: 8px;
+  transition: all 0.2s;
+}
+.pagination-page:hover { background: var(--chip-bg); color: var(--fg); }
+.pagination-page.is-on {
+  background: var(--chip-on-bg); color: var(--chip-on-fg);
+  font-weight: 600;
+}
+.pagination-ellipsis { color: var(--fg-faint); font-size: 12px; padding: 0 4px; }
+
 /* Detail drawer */
 .detail-backdrop {
   position: fixed; inset: 0; z-index: 100;

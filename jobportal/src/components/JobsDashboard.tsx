@@ -22,6 +22,20 @@ type Props = {
   meta: JobMeta;
 };
 
+const PAGE_SIZE = 24;
+
+function buildPageList(current: number, total: number): (number | "…")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | "…")[] = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) pages.push("…");
+  for (let i = start; i <= end; i++) pages.push(i);
+  if (end < total - 1) pages.push("…");
+  pages.push(total);
+  return pages;
+}
+
 export default function JobsDashboard({ initialJobs, meta }: Props) {
   const [tweaks, setTweaks] = useTweaks();
   const [filters, setFilters] = useState<Filters>({
@@ -36,6 +50,7 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
   });
   const [sort, setSort] = useState("recent");
   const [open, setOpen] = useState<UiJob | null>(null);
+  const [page, setPage] = useState(1);
 
   const jobs = initialJobs;
   const allTags = useMemo(() => {
@@ -85,6 +100,16 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
   useEffect(() => {
     document.documentElement.dataset.theme = tweaks.theme;
   }, [tweaks.theme]);
+
+  // Reset to page 1 whenever filter/sort changes the result set.
+  useEffect(() => {
+    setPage(1);
+  }, [filters, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const visible = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <>
@@ -269,20 +294,59 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
                   <span>SOURCE</span>
                   <span></span>
                 </div>
-                {filtered.map((j) => (
+                {visible.map((j) => (
                   <JobCard key={j.id} job={j} density="dense" onOpen={setOpen} />
                 ))}
               </div>
             ) : (
               <div className="job-grid">
-                {filtered.map((j) => (
+                {visible.map((j) => (
                   <JobCard key={j.id} job={j} density="spacious" onOpen={setOpen} />
                 ))}
               </div>
             )}
 
+            {filtered.length > 0 && (
+              <nav className="pagination glass" aria-label="Pagination">
+                <button
+                  className="pagination-btn"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  aria-label="Previous page"
+                >
+                  ← Prev
+                </button>
+                <div className="pagination-pages mono">
+                  {buildPageList(currentPage, totalPages).map((p, i) =>
+                    p === "…" ? (
+                      <span key={`e${i}`} className="pagination-ellipsis">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        className={`pagination-page ${p === currentPage ? "is-on" : ""}`}
+                        onClick={() => setPage(p as number)}
+                        aria-current={p === currentPage ? "page" : undefined}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                </div>
+                <button
+                  className="pagination-btn"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  aria-label="Next page"
+                >
+                  Next →
+                </button>
+              </nav>
+            )}
+
             <div className="results-footer mono">
-              — end of results · {filtered.length} of {jobs.length} —
+              {filtered.length
+                ? `showing ${pageStart + 1}–${pageStart + visible.length} of ${filtered.length}`
+                : `0 of ${jobs.length}`}
             </div>
           </main>
         </div>
