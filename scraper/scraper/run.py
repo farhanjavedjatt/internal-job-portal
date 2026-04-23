@@ -23,6 +23,9 @@ def _configure_logging(verbose: bool) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Silence noisy HTTP-layer debug even when -v is on.
+    for name in ("hpack", "hpack.hpack", "hpack.table", "httpcore", "httpx", "urllib3"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def run_profile(
