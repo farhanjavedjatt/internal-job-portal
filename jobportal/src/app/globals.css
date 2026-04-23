@@ -422,7 +422,13 @@ input { font-family: inherit; color: inherit; }
 
 .job-card-title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.25; text-wrap: pretty; }
 .job-card-company { font-size: 12px; color: var(--fg-dim); }
-.job-card-desc { font-size: 13px; color: var(--fg-dim); line-height: 1.5; text-wrap: pretty; }
+.job-card-desc {
+  font-size: 13px; color: var(--fg-dim); line-height: 1.5; text-wrap: pretty;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .job-card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .tag {
@@ -639,7 +645,13 @@ input { font-family: inherit; color: inherit; }
 }
 .detail-salary-label { font-size: 10px; color: var(--fg-faint); letter-spacing: 0.1em; }
 .detail-salary-value { font-size: 34px; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; }
-.detail-desc { margin-top: 20px; font-size: 14px; line-height: 1.6; color: var(--fg-dim); text-wrap: pretty; }
+.detail-desc {
+  margin-top: 20px; font-size: 14px; line-height: 1.6; color: var(--fg-dim);
+  text-wrap: pretty;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.detail-desc br { display: block; margin: 0.3em 0; }
 .detail-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
 .detail-stats {
   margin-top: 20px;

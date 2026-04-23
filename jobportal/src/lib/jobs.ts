@@ -38,7 +38,7 @@ export function rowToUi(row: JobRow): UiJob {
     postedAt,
     daysAgo,
     tags: (row.tags ?? []).slice(0, 5),
-    description: row.description?.slice(0, 240) ?? "",
+    description: row.description ?? "",
     applicants: null,
     relevance: 0.5,
     jobUrl: row.job_url ?? "",
