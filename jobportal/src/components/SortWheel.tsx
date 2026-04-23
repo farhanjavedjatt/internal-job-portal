@@ -49,7 +49,7 @@ export default function SortWheel({ options, value, onChange }: Props) {
                   key={opt.id}
                   className={`sortwheel-spoke ${opt.id === value ? "is-active" : ""}`}
                   style={{
-                    transform: `rotate(${angle}deg) translateY(-78px) rotate(${-angle}deg) rotate(${-rotation}deg)`,
+                    transform: `rotate(${angle}deg) translateY(-100px) rotate(${-angle}deg) rotate(${-rotation}deg)`,
                   }}
                   onClick={() => {
                     onChange(opt.id);
