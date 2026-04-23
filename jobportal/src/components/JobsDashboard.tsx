@@ -119,26 +119,26 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
         <header className="topbar glass">
           <div className="brand">
             <div className="brand-mark" aria-hidden>
-              <svg width="28" height="28" viewBox="0 0 28 28">
-                <circle
-                  cx="14"
-                  cy="14"
-                  r="11"
-                  fill="none"
-                  stroke="url(#brand-g)"
-                  strokeWidth="1.5"
-                />
-                <circle cx="14" cy="14" r="6" fill="url(#brand-g)" opacity="0.8" />
+              <svg width="32" height="32" viewBox="0 0 32 32">
                 <defs>
                   <linearGradient id="brand-g" x1="0" y1="0" x2="1" y2="1">
                     <stop offset="0%" stopColor="var(--accent)" />
                     <stop offset="100%" stopColor="var(--accent-2)" />
                   </linearGradient>
                 </defs>
+                <rect x="2" y="10" width="28" height="18" rx="4" fill="url(#brand-g)" />
+                <path
+                  d="M11 10 V7.5 A1.5 1.5 0 0 1 12.5 6 H19.5 A1.5 1.5 0 0 1 21 7.5 V10"
+                  fill="none"
+                  stroke="url(#brand-g)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <rect x="13.5" y="16" width="5" height="2" rx="1" fill="rgba(255,255,255,0.9)" />
               </svg>
             </div>
             <div className="brand-name">
-              Prism<span className="brand-dot">.</span>work
+              Internal <span className="brand-accent">Job Portal</span>
             </div>
           </div>
 
@@ -176,15 +176,15 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
               }
               aria-label="toggle theme"
             >
-              {tweaks.theme === "dark" ? (
+              {tweaks.theme === "light" ? (
                 <svg width="18" height="18" viewBox="0 0 18 18">
                   <circle cx="9" cy="9" r="3.5" fill="currentColor" />
-                  <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+                  <g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                     {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
                       <line
                         key={a}
-                        x1={9 + Math.cos((a * Math.PI) / 180) * 6}
-                        y1={9 + Math.sin((a * Math.PI) / 180) * 6}
+                        x1={9 + Math.cos((a * Math.PI) / 180) * 5.5}
+                        y1={9 + Math.sin((a * Math.PI) / 180) * 5.5}
                         x2={9 + Math.cos((a * Math.PI) / 180) * 7.5}
                         y2={9 + Math.sin((a * Math.PI) / 180) * 7.5}
                       />
@@ -193,7 +193,10 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
                 </svg>
               ) : (
                 <svg width="18" height="18" viewBox="0 0 18 18">
-                  <path d="M13 10 A5 5 0 0 1 8 5 A5 5 0 0 0 13 10 Z" fill="currentColor" />
+                  <path
+                    d="M14 11 A5.5 5.5 0 0 1 7 4 A5.5 5.5 0 1 0 14 11 Z"
+                    fill="currentColor"
+                  />
                 </svg>
               )}
             </button>

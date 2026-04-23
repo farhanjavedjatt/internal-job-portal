@@ -24,8 +24,8 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "Prism.work — jobs",
-  description: "A glassmorphism job portal. Scrape, filter, sort, apply.",
+  title: "Internal Job Portal",
+  description: "Internal job portal — browse, filter, and apply.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
