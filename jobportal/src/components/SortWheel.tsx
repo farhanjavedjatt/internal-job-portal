@@ -60,11 +60,11 @@ export default function SortWheel({ options, value, onChange }: Props) {
                 </button>
               );
             })}
-            <div className="sortwheel-center">
-              <span className="mono sortwheel-center-caption">SORTED BY</span>
-              <span className="sortwheel-center-value">{options[activeIdx]?.label}</span>
-            </div>
-            <div className="sortwheel-pointer" />
+          </div>
+          <div className="sortwheel-pointer" aria-hidden />
+          <div className="sortwheel-center">
+            <span className="mono sortwheel-center-caption">SORTED BY</span>
+            <span className="sortwheel-center-value">{options[activeIdx]?.label}</span>
           </div>
         </div>
       )}
