@@ -1,21 +1,29 @@
--- Seed Profile A — idempotent via unique name.
+-- Seed: Germany construction & infrastructure profile. Idempotent via unique name.
 
 insert into public.search_profiles
   (name, keywords, locations, sites, country_indeed, hours_old, results_wanted, include_bundesagentur, enabled)
 values
-  ('profile_a_us',
-   array['software engineer','data engineer'],
-   array['New York, NY'],
-   array['linkedin','indeed','glassdoor'],
-   'usa', 72, 50, false, true),
-  ('profile_a_uk',
-   array['software engineer','data engineer'],
-   array['London, UK'],
-   array['linkedin','indeed','glassdoor'],
-   'uk', 72, 50, false, true),
-  ('profile_a_de',
-   array['software engineer','data engineer'],
-   array['Berlin, Germany'],
-   array['linkedin','indeed','glassdoor'],
-   'germany', 72, 50, true, true)
-on conflict (name) do nothing;
+  ('germany_construction',
+   array[
+     'bauingenieur','tiefbau','hochbau','bauleiter',
+     'glasfaser','telekommunikation',
+     'energietechnik','elektrotechnik',
+     'bahnbau','netzingenieur'
+   ],
+   array[
+     'Berlin, Germany','München, Germany','Hamburg, Germany',
+     'Frankfurt, Germany','Köln, Germany','Stuttgart, Germany',
+     'Düsseldorf, Germany'
+   ],
+   -- Indeed + Bundesagentur only; LinkedIn/Glassdoor need rotating proxies and are off by default.
+   array['indeed'],
+   'germany', 168, 40, true, true)
+on conflict (name) do update
+  set keywords              = excluded.keywords,
+      locations             = excluded.locations,
+      sites                 = excluded.sites,
+      country_indeed        = excluded.country_indeed,
+      hours_old             = excluded.hours_old,
+      results_wanted        = excluded.results_wanted,
+      include_bundesagentur = excluded.include_bundesagentur,
+      enabled               = excluded.enabled;
