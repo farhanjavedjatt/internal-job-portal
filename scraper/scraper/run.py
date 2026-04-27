@@ -8,6 +8,7 @@ import traceback
 from typing import Any
 
 from .config import load_settings
+from .german_locations import is_bundesland
 from .sources import bundesagentur_source, jobspy_source
 from .supabase_client import (
     build_client,
@@ -96,10 +97,15 @@ def run_profile(
                 rows = []
                 inserted = updated = 0
                 try:
+                    bare_loc = loc.split(",")[0].strip()
+                    # Big radius for federal states; tight radius for cities so
+                    # we slice the populous areas past the 10k pagination cap.
+                    radius = 50 if is_bundesland(bare_loc) else 15
                     rows = bundesagentur_source.scrape_for(
                         api_key=ba_api_key,
                         keyword=kw,
-                        location=loc.split(",")[0],  # Bundesagentur wants just the city
+                        location=bare_loc,
+                        radius_km=radius,
                     )
                     totals["found"] += len(rows)
                     if not dry_run and rows:
