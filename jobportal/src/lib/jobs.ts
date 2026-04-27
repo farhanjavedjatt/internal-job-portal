@@ -99,23 +99,31 @@ function normalizeLevel(s: string | null): string {
   return "Mid";
 }
 
-export type ServerFilters = {
-  q?: string;
-  remote?: "any" | "remote" | "onsite";
-  posted?: "any" | "24h" | "7d" | "30d";
-  source?: string;
-  sort?: "recent" | "company";
-};
+// PostgREST caps a single response at 1000 rows by default. To return the full
+// filtered set without changing the UI contract, fetchJobs paginates internally
+// via .range(start, end) chunks. We do a HEAD count first to learn how many
+// pages to fetch, then issue them all in parallel — turning what would be a
+// 100+ sequential round-trip dance into a single fan-out.
+const CHUNK_SIZE = 1000;
+const DEFAULT_LIMIT = 200_000;
 
-export type JobsPage = {
-  jobs: UiJob[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-};
+// Columns shipped to the dashboard's initial render. `raw` (full source jsonb)
+// and `description` (can be multi-KB) are omitted on purpose to keep the SSR
+// payload light — the detail dialog gets the full row via a separate fetch.
+const SLIM_COLUMNS = [
+  "id", "source", "source_job_id", "title",
+  "company", "company_url",
+  "location_country", "location_city", "location_state",
+  "is_remote",
+  "job_type", "job_function", "job_level",
+  "date_posted",
+  "salary_min", "salary_max", "salary_currency", "salary_interval",
+  "job_url", "tags",
+  "first_seen_at", "last_seen_at", "is_active",
+].join(",");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyFilters<Q extends any>(q: Q, filters?: ServerFilters): Q {
+function applyFilters<Q>(q: Q, filters?: Partial<Filters>): Q {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let cur: any = q;
   if (filters?.q && filters.q.trim()) {
@@ -123,81 +131,116 @@ function applyFilters<Q extends any>(q: Q, filters?: ServerFilters): Q {
   }
   if (filters?.remote === "remote") cur = cur.eq("is_remote", true);
   if (filters?.remote === "onsite") cur = cur.eq("is_remote", false);
-  if (filters?.source) cur = cur.eq("source", filters.source);
   if (filters?.posted === "24h") cur = cur.gte("date_posted", daysAgoISO(1));
   if (filters?.posted === "7d") cur = cur.gte("date_posted", daysAgoISO(7));
   if (filters?.posted === "30d") cur = cur.gte("date_posted", daysAgoISO(30));
   return cur as Q;
 }
 
-export async function fetchJobsPage(
-  filters: ServerFilters = {},
-  page: number = 1,
-  pageSize: number = 24,
-): Promise<JobsPage> {
-  const sb = await getServerSupabase();
-  const safePage = Math.max(1, page);
-  const from = (safePage - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  // Pick ordering: 'recent' = newest date_posted first; 'company' = A→Z by company name.
-  const orderCol = filters.sort === "company" ? "company" : "date_posted";
-  const orderAsc = filters.sort === "company";
-
-  let q = sb
-    .from("jobs")
-    .select("*", { count: "exact" })
-    .eq("is_active", true)
-    .order(orderCol, { ascending: orderAsc, nullsFirst: false })
-    .range(from, to);
-
-  q = applyFilters(q, filters);
-
-  const { data, count, error } = await q;
+async function fetchChunk(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sb: any,
+  filters: Partial<Filters> | undefined,
+  offset: number,
+  to: number,
+  attempt: number = 1,
+): Promise<JobRow[]> {
+  const builder = applyFilters(
+    sb
+      .from("jobs")
+      .select(SLIM_COLUMNS)
+      .eq("is_active", true)
+      .order("date_posted", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(offset, to),
+    filters,
+  );
+  const { data, error } = await builder;
   if (error) {
-    console.error("fetchJobsPage error", error);
-    return { jobs: [], totalCount: 0, page: safePage, pageSize };
+    if (attempt < 3) {
+      // Retry transient timeouts (Supabase free tier statement timeout under load).
+      await new Promise((r) => setTimeout(r, 200 * attempt));
+      return fetchChunk(sb, filters, offset, to, attempt + 1);
+    }
+    console.error(`fetchJobs chunk ${offset}-${to} failed after ${attempt} attempts`, error);
+    return [];
   }
-  return {
-    jobs: (data as JobRow[]).map(rowToUi),
-    totalCount: count ?? 0,
-    page: safePage,
-    pageSize,
-  };
+  return (data ?? []) as unknown as JobRow[];
 }
 
-export async function fetchAllSources(): Promise<string[]> {
+// Run an array of async tasks with bounded concurrency, preserving order.
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
+}
+
+export async function fetchJobs(
+  filters?: Partial<Filters>,
+  limit = DEFAULT_LIMIT,
+): Promise<UiJob[]> {
   const sb = await getServerSupabase();
-  // No DISTINCT in PostgREST; pull a small slice to enumerate sources we have.
-  const { data } = await sb
-    .from("jobs")
-    .select("source")
-    .eq("is_active", true)
-    .limit(2000);
-  const set = new Set<string>();
-  for (const row of (data as { source: string }[]) ?? []) set.add(row.source);
-  return [...set].sort();
+
+  // 1. ESTIMATED count — Postgres planner stats, instant. The exact count
+  //    triggers an RLS-aware COUNT(*) which times out on 70k+ rows under the
+  //    Supabase free tier statement timeout.
+  const countBuilder = applyFilters(
+    sb.from("jobs").select("id", { count: "estimated", head: true }).eq("is_active", true),
+    filters,
+  );
+  const countResp = await countBuilder;
+  // Even if the estimate fails, fall back to a sane default and let the
+  // sequential tail at the end discover the true end of the result set.
+  const estimate = countResp.error ? DEFAULT_LIMIT : (countResp.count ?? DEFAULT_LIMIT);
+  // Add 10% overshoot so a low estimate doesn't truncate; sequential tail handles the rest.
+  const target = Math.min(Math.ceil(estimate * 1.1), limit);
+
+  // 2. Fan out range fetches in parallel.
+  const offsets: number[] = [];
+  for (let o = 0; o < target; o += CHUNK_SIZE) offsets.push(o);
+
+  // Bounded concurrency keeps us from drowning Supabase's free-tier connection
+  // pool, which causes statement-timeout errors on individual range queries.
+  const PARALLELISM = 8;
+  const parallelResults = await mapWithConcurrency(
+    offsets,
+    (offset) => fetchChunk(sb, filters, offset, Math.min(offset + CHUNK_SIZE, target) - 1),
+    PARALLELISM,
+  );
+
+  const all: JobRow[] = parallelResults.flat();
+
+  // 3. Sequential tail — if the last parallel chunk was full, the dataset may
+  //    extend beyond our estimate. Keep walking forward until we hit a short
+  //    page or the safety cap.
+  let nextOffset = target;
+  let lastChunkFull =
+    parallelResults.length > 0 && parallelResults[parallelResults.length - 1].length === CHUNK_SIZE;
+  while (lastChunkFull && nextOffset < limit) {
+    const to = Math.min(nextOffset + CHUNK_SIZE, limit) - 1;
+    const chunk = await fetchChunk(sb, filters, nextOffset, to);
+    all.push(...chunk);
+    if (chunk.length < to - nextOffset + 1) break;
+    nextOffset += CHUNK_SIZE;
+    lastChunkFull = chunk.length === CHUNK_SIZE;
+  }
+
+  return all.map(rowToUi);
 }
 
 function daysAgoISO(days: number): string {
   const d = new Date(Date.now() - days * 86400000);
   return d.toISOString().slice(0, 10);
-}
-
-// Back-compat: kept in case anything else imports it. New code uses fetchJobsPage.
-export async function fetchJobs(filters?: Partial<Filters>, limit = 500): Promise<UiJob[]> {
-  const sb = await getServerSupabase();
-  const q = sb
-    .from("jobs")
-    .select("*")
-    .eq("is_active", true)
-    .order("date_posted", { ascending: false, nullsFirst: false })
-    .limit(limit);
-  const filtered = applyFilters(q, filters as ServerFilters | undefined);
-  const { data, error } = await filtered;
-  if (error) {
-    console.error("fetchJobs error", error);
-    return [];
-  }
-  return (data as JobRow[]).map(rowToUi);
 }

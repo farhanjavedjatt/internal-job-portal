@@ -1,27 +1,83 @@
 "use client";
 
-import type { ServerFilters } from "@/lib/jobs";
+import SalaryScrubber from "./SalaryScrubber";
+import type { Filters, JobMeta, UiJob } from "@/lib/types";
 
 type Props = {
-  filters: ServerFilters;
-  sources: string[];
-  onChange: (updates: Record<string, string | undefined>) => void;
+  filters: Filters;
+  setFilters: React.Dispatch<React.SetStateAction<Filters>>;
+  jobs: UiJob[];
+  meta: JobMeta;
+  allTags: string[];
 };
 
-export default function FilterRail({ filters, sources, onChange }: Props) {
-  const remote = filters.remote ?? "any";
-  const posted = filters.posted ?? "any";
-  const source = filters.source;
+function ChipGroup({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onToggle: (v: string) => void;
+}) {
+  return (
+    <div className="chipgroup">
+      <div className="chipgroup-label mono">{label}</div>
+      <div className="chipgroup-chips">
+        {options.map((opt) => {
+          const isOn = selected.includes(opt);
+          return (
+            <button
+              key={opt}
+              className={`chip ${isOn ? "is-on" : ""}`}
+              onClick={() => onToggle(opt)}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default function FilterRail({ filters, setFilters, jobs, meta, allTags }: Props) {
+  const toggle = (key: "types" | "levels" | "sizes" | "tags", val: string) => {
+    setFilters((f) => {
+      const arr = f[key];
+      return {
+        ...f,
+        [key]: arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val],
+      };
+    });
+  };
+
+  const setSalary = (v: [number, number]) => setFilters((f) => ({ ...f, salary: v }));
+  const setPosted = (v: Filters["posted"]) => setFilters((f) => ({ ...f, posted: v }));
+  const setRemote = (v: Filters["remote"]) => setFilters((f) => ({ ...f, remote: v }));
+
+  const clearAll = () =>
+    setFilters({
+      q: "",
+      types: [],
+      levels: [],
+      sizes: [],
+      tags: [],
+      salary: [40, 300],
+      posted: "any",
+      remote: "any",
+    });
 
   const activeCount =
-    (remote !== "any" ? 1 : 0) +
-    (posted !== "any" ? 1 : 0) +
-    (source ? 1 : 0) +
-    (filters.q ? 1 : 0);
-
-  function clearAll() {
-    onChange({ q: undefined, remote: undefined, posted: undefined, source: undefined });
-  }
+    filters.types.length +
+    filters.levels.length +
+    filters.sizes.length +
+    filters.tags.length +
+    (filters.remote !== "any" ? 1 : 0) +
+    (filters.posted !== "any" ? 1 : 0) +
+    (filters.salary[0] !== 40 || filters.salary[1] !== 300 ? 1 : 0);
 
   return (
     <aside className="rail glass">
@@ -45,13 +101,35 @@ export default function FilterRail({ filters, sources, onChange }: Props) {
           {(["any", "remote", "onsite"] as const).map((v) => (
             <button
               key={v}
-              className={`segmented-seg ${remote === v ? "is-on" : ""}`}
-              onClick={() => onChange({ remote: v === "any" ? undefined : v })}
+              className={`segmented-seg ${filters.remote === v ? "is-on" : ""}`}
+              onClick={() => setRemote(v)}
             >
               {v === "any" ? "All" : v[0].toUpperCase() + v.slice(1)}
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="rail-section">
+        <SalaryScrubber min={40} max={300} value={filters.salary} onChange={setSalary} jobs={jobs} />
+      </div>
+
+      <div className="rail-section">
+        <ChipGroup
+          label="Seniority"
+          options={meta.levels}
+          selected={filters.levels}
+          onToggle={(v) => toggle("levels", v)}
+        />
+      </div>
+
+      <div className="rail-section">
+        <ChipGroup
+          label="Employment"
+          options={meta.types}
+          selected={filters.types}
+          onToggle={(v) => toggle("types", v)}
+        />
       </div>
 
       <div className="rail-section">
@@ -67,8 +145,8 @@ export default function FilterRail({ filters, sources, onChange }: Props) {
           ).map((v) => (
             <button
               key={v.id}
-              className={`segmented-seg ${posted === v.id ? "is-on" : ""}`}
-              onClick={() => onChange({ posted: v.id === "any" ? undefined : v.id })}
+              className={`segmented-seg ${filters.posted === v.id ? "is-on" : ""}`}
+              onClick={() => setPosted(v.id)}
             >
               {v.label}
             </button>
@@ -76,26 +154,14 @@ export default function FilterRail({ filters, sources, onChange }: Props) {
         </div>
       </div>
 
-      {sources.length > 1 && (
+      {allTags.length > 0 && (
         <div className="rail-section">
-          <div className="chipgroup-label mono">Source</div>
-          <div className="chipgroup-chips">
-            <button
-              className={`chip ${!source ? "is-on" : ""}`}
-              onClick={() => onChange({ source: undefined })}
-            >
-              all
-            </button>
-            {sources.map((s) => (
-              <button
-                key={s}
-                className={`chip ${source === s ? "is-on" : ""}`}
-                onClick={() => onChange({ source: source === s ? undefined : s })}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
+          <ChipGroup
+            label="Skills"
+            options={allTags.slice(0, 40)}
+            selected={filters.tags}
+            onToggle={(v) => toggle("tags", v)}
+          />
         </div>
       )}
     </aside>

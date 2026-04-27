@@ -1,8 +1,29 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { UiJob } from "@/lib/types";
 
 export default function JobDetail({ job, onClose }: { job: UiJob | null; onClose: () => void }) {
+  const [description, setDescription] = useState<string>(job?.description ?? "");
+  const [loadingDesc, setLoadingDesc] = useState(false);
+
+  useEffect(() => {
+    if (!job) return;
+    setDescription(job.description ?? "");
+    // Slim list payload omits descriptions to keep SSR lean. Fetch the full
+    // text on demand when the detail dialog opens.
+    if (!job.description) {
+      setLoadingDesc(true);
+      fetch(`/api/job/${encodeURIComponent(job.id)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.description) setDescription(d.description);
+        })
+        .catch(() => {})
+        .finally(() => setLoadingDesc(false));
+    }
+  }, [job]);
+
   if (!job) return null;
   return (
     <div className="detail-backdrop" onClick={onClose}>
@@ -53,7 +74,11 @@ export default function JobDetail({ job, onClose }: { job: UiJob | null; onClose
             <span className="mono" style={{ fontSize: "0.5em", opacity: 0.6 }}>k</span>
           </div>
         </div>
-        {job.description && <div className="detail-desc">{job.description}</div>}
+        {loadingDesc && !description ? (
+          <div className="detail-desc mono" style={{ opacity: 0.5 }}>loading description…</div>
+        ) : description ? (
+          <div className="detail-desc">{description}</div>
+        ) : null}
         {job.tags.length > 0 && (
           <div className="detail-tags">
             {job.tags.map((t) => (
