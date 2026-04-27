@@ -1,28 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Aurora from "./Aurora";
 import FilterRail from "./FilterRail";
 import JobCard from "./JobCard";
 import JobDetail from "./JobDetail";
 import SortWheel from "./SortWheel";
 import { useTweaks } from "@/hooks/useTweaks";
-import type { Filters, JobMeta, UiJob } from "@/lib/types";
+import type { JobMeta, UiJob } from "@/lib/types";
+import type { ServerFilters } from "@/lib/jobs";
 
 const SORT_OPTIONS = [
   { id: "recent", label: "Most recent" },
-  { id: "salary-desc", label: "Salary ↓" },
-  { id: "salary-asc", label: "Salary ↑" },
-  { id: "match", label: "Best match" },
   { id: "company", label: "Company A→Z" },
 ];
 
 type Props = {
   initialJobs: UiJob[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  filters: ServerFilters;
+  sources: string[];
   meta: JobMeta;
 };
-
-const PAGE_SIZE = 24;
 
 function buildPageList(current: number, total: number): (number | "…")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
@@ -36,80 +38,76 @@ function buildPageList(current: number, total: number): (number | "…")[] {
   return pages;
 }
 
-export default function JobsDashboard({ initialJobs, meta }: Props) {
+function buildQueryString(updates: Record<string, string | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(updates)) {
+    if (v && v !== "any") params.set(k, v);
+  }
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
+
+export default function JobsDashboard({
+  initialJobs,
+  totalCount,
+  page,
+  pageSize,
+  filters,
+  sources,
+  meta,
+}: Props) {
+  const router = useRouter();
   const [tweaks, setTweaks] = useTweaks();
-  const [filters, setFilters] = useState<Filters>({
-    q: "",
-    types: [],
-    levels: [],
-    sizes: [],
-    tags: [],
-    salary: [40, 300],
-    posted: "any",
-    remote: "any",
-  });
-  const [sort, setSort] = useState("recent");
   const [open, setOpen] = useState<UiJob | null>(null);
-  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState(filters.q ?? "");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const jobs = initialJobs;
-  const allTags = useMemo(() => {
-    const s = new Set<string>();
-    jobs.forEach((j) => j.tags.forEach((t) => s.add(t)));
-    return [...s].sort();
-  }, [jobs]);
+  // Sync search input when URL q changes externally
+  useEffect(() => {
+    setSearchInput(filters.q ?? "");
+  }, [filters.q]);
 
-  const filtered = useMemo(() => {
-    const q = filters.q.toLowerCase().trim();
-    let list = jobs.filter((j) => {
-      if (q) {
-        const hay = `${j.title} ${j.company} ${j.location} ${j.tags.join(" ")}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (filters.remote === "remote" && !j.remote) return false;
-      if (filters.remote === "onsite" && j.remote) return false;
-      if (filters.types.length && !filters.types.includes(j.type)) return false;
-      if (filters.levels.length && !filters.levels.includes(j.level)) return false;
-      if (filters.tags.length && !filters.tags.some((t) => j.tags.includes(t))) return false;
-      const mid = (j.salaryMin + j.salaryMax) / 2;
-      if (mid < filters.salary[0] || mid > filters.salary[1]) return false;
-      if (filters.posted === "24h" && j.daysAgo > 1) return false;
-      if (filters.posted === "7d" && j.daysAgo > 7) return false;
-      if (filters.posted === "30d" && j.daysAgo > 30) return false;
-      return true;
-    });
-    const sorted = [...list];
-    if (sort === "recent") sorted.sort((a, b) => a.daysAgo - b.daysAgo);
-    else if (sort === "salary-desc") sorted.sort((a, b) => b.salaryMax - a.salaryMax);
-    else if (sort === "salary-asc") sorted.sort((a, b) => a.salaryMin - b.salaryMin);
-    else if (sort === "match") sorted.sort((a, b) => b.relevance - a.relevance);
-    else if (sort === "company") sorted.sort((a, b) => a.company.localeCompare(b.company));
-    return sorted;
-  }, [jobs, filters, sort]);
-
-  const heroStats = useMemo(() => {
-    const total = filtered.length;
-    const remote = filtered.filter((j) => j.remote).length;
-    const mids = filtered.map((j) => (j.salaryMin + j.salaryMax) / 2).sort((a, b) => a - b);
-    const medianSalary = mids.length ? Math.round(mids[Math.floor(mids.length / 2)]) : 0;
-    const companies = new Set(filtered.map((j) => j.company)).size;
-    return { total, remote, medianSalary, companies };
-  }, [filtered]);
-
-  // Suppress SSR hydration drift on theme classes
+  // Theme attr (in case it drifts)
   useEffect(() => {
     document.documentElement.dataset.theme = tweaks.theme;
   }, [tweaks.theme]);
 
-  // Reset to page 1 whenever filter/sort changes the result set.
-  useEffect(() => {
-    setPage(1);
-  }, [filters, sort]);
+  function navigate(updates: Record<string, string | undefined>) {
+    // Merge with existing filters, reset to page 1 on any filter change unless page is explicitly set
+    const merged: Record<string, string | undefined> = {
+      q: filters.q,
+      remote: filters.remote,
+      posted: filters.posted,
+      source: filters.source,
+      sort: filters.sort,
+      page: String(page),
+      ...updates,
+    };
+    if (!("page" in updates)) merged.page = "1";
+    router.push("/" + buildQueryString(merged));
+  }
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const visible = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  function onSearchChange(v: string) {
+    setSearchInput(v);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      navigate({ q: v.trim() || undefined });
+    }, 350);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const pageStart = (page - 1) * pageSize;
+
+  const heroStats = useMemo(() => {
+    // Stats are over the full filtered set; we only have the current page in
+    // memory, so show counts that reflect the page-level slice + total.
+    const pageJobs = initialJobs;
+    const remote = pageJobs.filter((j) => j.remote).length;
+    const mids = pageJobs.map((j) => (j.salaryMin + j.salaryMax) / 2).sort((a, b) => a - b);
+    const median = mids.length ? Math.round(mids[Math.floor(mids.length / 2)]) : 0;
+    const companies = new Set(pageJobs.map((j) => j.company)).size;
+    return { total: totalCount, remote, median, companies };
+  }, [initialJobs, totalCount]);
 
   return (
     <>
@@ -153,14 +151,15 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
               />
             </svg>
             <input
-              value={filters.q}
-              onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+              value={searchInput}
+              onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Search title, company, skill, city…"
             />
-            {filters.q && (
+            {searchInput && (
               <button
                 className="search-clear"
-                onClick={() => setFilters((f) => ({ ...f, q: "" }))}
+                onClick={() => onSearchChange("")}
+                aria-label="Clear search"
               >
                 ×
               </button>
@@ -168,7 +167,11 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
           </div>
 
           <div className="topbar-right">
-            <SortWheel options={SORT_OPTIONS} value={sort} onChange={setSort} />
+            <SortWheel
+              options={SORT_OPTIONS}
+              value={filters.sort ?? "recent"}
+              onChange={(v) => navigate({ sort: v })}
+            />
             <button
               className="theme-toggle"
               onClick={() =>
@@ -206,34 +209,27 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
         <div className="layout">
           <FilterRail
             filters={filters}
-            setFilters={setFilters}
-            jobs={jobs}
-            meta={meta}
-            allTags={allTags}
+            sources={sources}
+            onChange={(updates) => navigate(updates)}
           />
 
           <main className="main">
             <div className="stats-strip glass">
               <div className="stat">
-                <div className="stat-num">{heroStats.total}</div>
+                <div className="stat-num">{heroStats.total.toLocaleString()}</div>
                 <div className="stat-label mono">OPEN ROLES</div>
               </div>
               <div className="stat">
                 <div className="stat-num">{heroStats.remote}</div>
-                <div className="stat-label mono">REMOTE</div>
-              </div>
-              <div className="stat">
-                <div className="stat-num">
-                  ${heroStats.medianSalary}
-                  <span style={{ fontSize: "0.5em", opacity: 0.5 }} className="mono">
-                    k
-                  </span>
-                </div>
-                <div className="stat-label mono">MEDIAN SALARY</div>
+                <div className="stat-label mono">REMOTE (PAGE)</div>
               </div>
               <div className="stat">
                 <div className="stat-num">{heroStats.companies}</div>
-                <div className="stat-label mono">COMPANIES</div>
+                <div className="stat-label mono">COMPANIES (PAGE)</div>
+              </div>
+              <div className="stat">
+                <div className="stat-num">{totalPages.toLocaleString()}</div>
+                <div className="stat-label mono">PAGES</div>
               </div>
               <div className="stat stat-pulse">
                 <div className="stat-num-sm mono">LIVE</div>
@@ -243,7 +239,7 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
 
             <div className="results-head">
               <div className="results-title">
-                {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+                {totalCount.toLocaleString()} result{totalCount !== 1 ? "s" : ""}
                 {filters.q && (
                   <span className="results-q">
                     {" "}
@@ -278,7 +274,7 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
               </div>
             </div>
 
-            {filtered.length === 0 ? (
+            {initialJobs.length === 0 ? (
               <div className="empty glass">
                 <div className="empty-glyph">◍</div>
                 <div className="empty-title">No roles match those filters</div>
@@ -297,48 +293,50 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
                   <span>SOURCE</span>
                   <span></span>
                 </div>
-                {visible.map((j) => (
+                {initialJobs.map((j) => (
                   <JobCard key={j.id} job={j} density="dense" onOpen={setOpen} />
                 ))}
               </div>
             ) : (
               <div className="job-grid">
-                {visible.map((j) => (
+                {initialJobs.map((j) => (
                   <JobCard key={j.id} job={j} density="spacious" onOpen={setOpen} />
                 ))}
               </div>
             )}
 
-            {filtered.length > 0 && (
+            {totalCount > 0 && (
               <nav className="pagination glass" aria-label="Pagination">
                 <button
                   className="pagination-btn"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
+                  onClick={() => navigate({ page: String(Math.max(1, page - 1)) })}
+                  disabled={page === 1}
                   aria-label="Previous page"
                 >
                   ← Prev
                 </button>
                 <div className="pagination-pages mono">
-                  {buildPageList(currentPage, totalPages).map((p, i) =>
+                  {buildPageList(page, totalPages).map((p, i) =>
                     p === "…" ? (
-                      <span key={`e${i}`} className="pagination-ellipsis">…</span>
+                      <span key={`e${i}`} className="pagination-ellipsis">
+                        …
+                      </span>
                     ) : (
                       <button
                         key={p}
-                        className={`pagination-page ${p === currentPage ? "is-on" : ""}`}
-                        onClick={() => setPage(p as number)}
-                        aria-current={p === currentPage ? "page" : undefined}
+                        className={`pagination-page ${p === page ? "is-on" : ""}`}
+                        onClick={() => navigate({ page: String(p) })}
+                        aria-current={p === page ? "page" : undefined}
                       >
                         {p}
                       </button>
-                    )
+                    ),
                   )}
                 </div>
                 <button
                   className="pagination-btn"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
+                  onClick={() => navigate({ page: String(Math.min(totalPages, page + 1)) })}
+                  disabled={page === totalPages}
                   aria-label="Next page"
                 >
                   Next →
@@ -347,9 +345,9 @@ export default function JobsDashboard({ initialJobs, meta }: Props) {
             )}
 
             <div className="results-footer mono">
-              {filtered.length
-                ? `showing ${pageStart + 1}–${pageStart + visible.length} of ${filtered.length}`
-                : `0 of ${jobs.length}`}
+              {totalCount
+                ? `showing ${(pageStart + 1).toLocaleString()}–${(pageStart + initialJobs.length).toLocaleString()} of ${totalCount.toLocaleString()}`
+                : "0 results"}
             </div>
           </main>
         </div>

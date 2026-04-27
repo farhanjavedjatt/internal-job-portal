@@ -99,33 +99,105 @@ function normalizeLevel(s: string | null): string {
   return "Mid";
 }
 
-export async function fetchJobs(filters?: Partial<Filters>, limit = 500): Promise<UiJob[]> {
+export type ServerFilters = {
+  q?: string;
+  remote?: "any" | "remote" | "onsite";
+  posted?: "any" | "24h" | "7d" | "30d";
+  source?: string;
+  sort?: "recent" | "company";
+};
+
+export type JobsPage = {
+  jobs: UiJob[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyFilters<Q extends any>(q: Q, filters?: ServerFilters): Q {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let cur: any = q;
+  if (filters?.q && filters.q.trim()) {
+    cur = cur.textSearch("search_tsv", filters.q.trim(), { type: "websearch" });
+  }
+  if (filters?.remote === "remote") cur = cur.eq("is_remote", true);
+  if (filters?.remote === "onsite") cur = cur.eq("is_remote", false);
+  if (filters?.source) cur = cur.eq("source", filters.source);
+  if (filters?.posted === "24h") cur = cur.gte("date_posted", daysAgoISO(1));
+  if (filters?.posted === "7d") cur = cur.gte("date_posted", daysAgoISO(7));
+  if (filters?.posted === "30d") cur = cur.gte("date_posted", daysAgoISO(30));
+  return cur as Q;
+}
+
+export async function fetchJobsPage(
+  filters: ServerFilters = {},
+  page: number = 1,
+  pageSize: number = 24,
+): Promise<JobsPage> {
   const sb = await getServerSupabase();
+  const safePage = Math.max(1, page);
+  const from = (safePage - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  // Pick ordering: 'recent' = newest date_posted first; 'company' = A→Z by company name.
+  const orderCol = filters.sort === "company" ? "company" : "date_posted";
+  const orderAsc = filters.sort === "company";
+
   let q = sb
     .from("jobs")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("is_active", true)
-    .order("date_posted", { ascending: false, nullsFirst: false })
-    .limit(limit);
+    .order(orderCol, { ascending: orderAsc, nullsFirst: false })
+    .range(from, to);
 
-  if (filters?.q && filters.q.trim()) {
-    q = q.textSearch("search_tsv", filters.q.trim(), { type: "websearch" });
-  }
-  if (filters?.remote === "remote") q = q.eq("is_remote", true);
-  if (filters?.remote === "onsite") q = q.eq("is_remote", false);
-  if (filters?.posted === "24h") q = q.gte("date_posted", daysAgoISO(1));
-  if (filters?.posted === "7d") q = q.gte("date_posted", daysAgoISO(7));
-  if (filters?.posted === "30d") q = q.gte("date_posted", daysAgoISO(30));
+  q = applyFilters(q, filters);
 
-  const { data, error } = await q;
+  const { data, count, error } = await q;
   if (error) {
-    console.error("fetchJobs error", error);
-    return [];
+    console.error("fetchJobsPage error", error);
+    return { jobs: [], totalCount: 0, page: safePage, pageSize };
   }
-  return (data as JobRow[]).map(rowToUi);
+  return {
+    jobs: (data as JobRow[]).map(rowToUi),
+    totalCount: count ?? 0,
+    page: safePage,
+    pageSize,
+  };
+}
+
+export async function fetchAllSources(): Promise<string[]> {
+  const sb = await getServerSupabase();
+  // No DISTINCT in PostgREST; pull a small slice to enumerate sources we have.
+  const { data } = await sb
+    .from("jobs")
+    .select("source")
+    .eq("is_active", true)
+    .limit(2000);
+  const set = new Set<string>();
+  for (const row of (data as { source: string }[]) ?? []) set.add(row.source);
+  return [...set].sort();
 }
 
 function daysAgoISO(days: number): string {
   const d = new Date(Date.now() - days * 86400000);
   return d.toISOString().slice(0, 10);
+}
+
+// Back-compat: kept in case anything else imports it. New code uses fetchJobsPage.
+export async function fetchJobs(filters?: Partial<Filters>, limit = 500): Promise<UiJob[]> {
+  const sb = await getServerSupabase();
+  const q = sb
+    .from("jobs")
+    .select("*")
+    .eq("is_active", true)
+    .order("date_posted", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  const filtered = applyFilters(q, filters as ServerFilters | undefined);
+  const { data, error } = await filtered;
+  if (error) {
+    console.error("fetchJobs error", error);
+    return [];
+  }
+  return (data as JobRow[]).map(rowToUi);
 }
