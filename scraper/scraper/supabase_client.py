@@ -29,8 +29,11 @@ def load_enabled_profiles(client: Client) -> list[dict[str, Any]]:
 def upsert_jobs(client: Client, rows: list[dict[str, Any]]) -> tuple[int, int]:
     """Upsert jobs on (source, source_job_id).
 
-    Returns (inserted_count, updated_count). We can't reliably tell them apart
-    from the PostgREST response, so we pre-query for existing keys.
+    Returns (upserted_total, 0). We don't split inserted vs updated for the
+    full-Germany sweep — PostgREST's `in.()` URL filter overflows past a few
+    hundred ids, and per-row pre-queries are too slow at this scale. The DB
+    handles dedup via the unique constraint; jobs.first_seen_at vs last_seen_at
+    is the source of truth for new-vs-seen.
     """
     if not rows:
         return 0, 0
@@ -40,24 +43,8 @@ def upsert_jobs(client: Client, rows: list[dict[str, Any]]) -> tuple[int, int]:
         r["last_seen_at"] = now
         r["is_active"] = True
 
-    # Find which already exist to split counts
-    keys = [(r["source"], r["source_job_id"]) for r in rows]
-    sources = list({k[0] for k in keys})
-    ids = [k[1] for k in keys]
-    existing_resp = (
-        client.table("jobs")
-        .select("source,source_job_id")
-        .in_("source", sources)
-        .in_("source_job_id", ids)
-        .execute()
-    )
-    existing_keys = {(r["source"], r["source_job_id"]) for r in (existing_resp.data or [])}
-
-    inserted = sum(1 for k in keys if k not in existing_keys)
-    updated = len(keys) - inserted
-
-    # Batch upserts (PostgREST 1000-row limit)
-    BATCH = 500
+    BATCH = 200  # keeps each request body well under PostgREST 1MB cap
+    upserted = 0
     for i in range(0, len(rows), BATCH):
         batch = rows[i : i + BATCH]
         client.table("jobs").upsert(
@@ -65,8 +52,9 @@ def upsert_jobs(client: Client, rows: list[dict[str, Any]]) -> tuple[int, int]:
             on_conflict="source,source_job_id",
             returning="minimal",
         ).execute()
+        upserted += len(batch)
 
-    return inserted, updated
+    return upserted, 0
 
 
 def log_run_start(

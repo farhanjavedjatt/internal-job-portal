@@ -35,25 +35,33 @@ def scrape_for(
     keyword: str,
     location: str,
     radius_km: int = 50,
-    page_size: int = 50,
-    max_pages: int = 3,
+    page_size: int = 100,
+    max_pages: int = 100,
 ) -> list[dict[str, Any]]:
-    """Fetch jobs from Bundesagentur für Arbeit for (keyword, location)."""
-    log.info("bundesagentur: %s @ %s", keyword, location)
+    """Fetch jobs from Bundesagentur für Arbeit for (keyword, location).
+
+    Empty `keyword` means "all jobs in this location".
+    Bundesagentur paginates max ~100 pages × 100 results = 10,000 per query.
+    """
+    log.info("bundesagentur: %s @ %s", keyword or "(all)", location)
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
+    consecutive_empty = 0
+    total_max = None
     for page in range(1, max_pages + 1):
+        params: dict[str, Any] = {
+            "wo": location,
+            "umkreis": radius_km,
+            "page": page,
+            "size": page_size,
+        }
+        # Only send `was` if a keyword was provided. Empty `was` returns the same
+        # results, but skipping the param is cleaner and matches the API's intent.
+        if keyword:
+            params["was"] = keyword
+
         try:
-            data = _search_page(
-                api_key,
-                {
-                    "was": keyword,
-                    "wo": location,
-                    "umkreis": radius_km,
-                    "page": page,
-                    "size": page_size,
-                },
-            )
+            data = _search_page(api_key, params)
         except requests.HTTPError as e:
             log.warning("bundesagentur HTTP error: %s", e)
             break
@@ -61,9 +69,17 @@ def scrape_for(
             log.warning("bundesagentur network error: %s", e)
             break
 
+        if total_max is None:
+            total_max = data.get("maxErgebnisse")
+
         items = data.get("stellenangebote") or []
         if not items:
-            break
+            consecutive_empty += 1
+            # API often returns empty pages briefly past the 10k cap before settling.
+            if consecutive_empty >= 2:
+                break
+            continue
+        consecutive_empty = 0
 
         for raw in items:
             n = normalize_bundesagentur_row(raw)
@@ -77,5 +93,8 @@ def scrape_for(
         if len(items) < page_size:
             break
 
-    log.info("bundesagentur: got %d rows", len(out))
+    log.info(
+        "bundesagentur: got %d rows from %r (api reports %s total matching)",
+        len(out), location, total_max,
+    )
     return out

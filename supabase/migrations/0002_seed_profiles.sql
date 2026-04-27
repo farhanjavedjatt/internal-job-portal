@@ -1,23 +1,19 @@
--- Seed: Germany construction & infrastructure profile. Idempotent via unique name.
+-- Seed: Germany-wide sweep (all industries). Idempotent via unique name.
+-- Empty keyword + 16 Bundesländer = full coverage of Bundesagentur listings.
 
 insert into public.search_profiles
   (name, keywords, locations, sites, country_indeed, hours_old, results_wanted, include_bundesagentur, enabled)
 values
-  ('germany_construction',
+  ('germany_all',
+   array['']::text[],                    -- empty = no keyword filter
    array[
-     'bauingenieur','tiefbau','hochbau','bauleiter',
-     'glasfaser','telekommunikation',
-     'energietechnik','elektrotechnik',
-     'bahnbau','netzingenieur'
+     'Nordrhein-Westfalen','Bayern','Baden-Württemberg','Niedersachsen',
+     'Hessen','Sachsen','Rheinland-Pfalz','Berlin','Schleswig-Holstein',
+     'Brandenburg','Sachsen-Anhalt','Thüringen','Hamburg','Mecklenburg-Vorpommern',
+     'Saarland','Bremen'
    ],
-   array[
-     'Berlin, Germany','München, Germany','Hamburg, Germany',
-     'Frankfurt, Germany','Köln, Germany','Stuttgart, Germany',
-     'Düsseldorf, Germany'
-   ],
-   -- Indeed + Bundesagentur only; LinkedIn/Glassdoor need rotating proxies and are off by default.
-   array['indeed'],
-   'germany', 168, 40, true, true)
+   array[]::text[],                      -- no JobSpy: Indeed/LinkedIn need a keyword
+   'germany', 0, 0, true, true)
 on conflict (name) do update
   set keywords              = excluded.keywords,
       locations             = excluded.locations,

@@ -37,6 +37,9 @@ def run_profile(
 ) -> dict[str, int]:
     totals = {"found": 0, "inserted": 0, "updated": 0}
     keywords = profile.get("keywords") or []
+    # An empty keyword list (or [""]) means "no keyword filter" — sweep everything.
+    if not keywords or keywords == [""]:
+        keywords = [""]
     locations = profile.get("locations") or []
     sites = profile.get("sites") or []
     country_indeed = profile.get("country_indeed")
@@ -44,8 +47,10 @@ def run_profile(
     results_wanted = profile.get("results_wanted") or 50
     include_ba = bool(profile.get("include_bundesagentur"))
 
-    # JobSpy: one call per keyword×location, all sites in one shot
-    for kw in keywords:
+    # JobSpy: one call per keyword×location, all sites in one shot. Skipped if no sites
+    # or no keyword (Indeed/LinkedIn need a search term to be useful).
+    jobspy_keywords = [k for k in keywords if k]
+    for kw in jobspy_keywords if sites else []:
         for loc in locations:
             run_id = (
                 None
@@ -77,12 +82,11 @@ def run_profile(
                 if not dry_run and run_id:
                     log_run_finish(client, run_id, len(rows), inserted, updated, error)
 
-    # Bundesagentur: same pattern, Germany-only
+    # Bundesagentur: same pattern, Germany-only. Locations are assumed to be in Germany
+    # when include_bundesagentur is on (states, cities, or "Deutschland").
     if include_ba:
         for kw in keywords:
             for loc in locations:
-                if "german" not in loc.lower() and "berlin" not in loc.lower():
-                    continue
                 run_id = (
                     None
                     if dry_run
